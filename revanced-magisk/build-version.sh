@@ -30,7 +30,8 @@ else
 fi
 
 # Run build
-"$ROOT_DIR/build.sh"
+cd "$ROOT_DIR"
+./build.sh
 
 # Restore original config
 mv "$ROOT_DIR/config.toml.backup" "$ROOT_DIR/config.toml"
