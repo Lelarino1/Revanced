@@ -16,7 +16,7 @@ build-mode = "both"
 excluded-patches = "'Change form factor'"
 patcher-args = "-e 'Custom branding name for YouTube' -OappName=YTA"
 
-[YT music]
+[YT_music]
 apkmirror-dlurl = "https://apkmirror.com/apk/google-inc/youtube-music/"
 patches-source = "anddea/revanced-patches"
 integrations-source = "anddea/revanced-integrations"
@@ -27,3 +27,4 @@ included-patches = "'Disable music video in album'"
 
 [Reddit]
 apkmirror-dlurl = "https://apkmirror.com/apk/redditinc/reddit/"
+
