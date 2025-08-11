@@ -1,0 +1,22 @@
+name: Build YouTube Version (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to pass to build-version.sh (or "auto")'
+        required: true
+        default: '20.21.37'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run build-version.sh
+        working-directory: revanced-magisk
+        run: |
+          chmod +x ./build-version.sh
+          ./build-version.sh "${{ github.event.inputs.version }}"
