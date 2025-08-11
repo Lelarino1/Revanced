@@ -20,3 +20,8 @@ jobs:
         run: |
           chmod +x ./build-version.sh
           ./build-version.sh "${{ github.event.inputs.version }}"
+      - name: Upload artifact (adjust path)
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-build
+          path: revanced-magisk/out/*.apk
