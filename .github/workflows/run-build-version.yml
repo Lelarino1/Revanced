@@ -11,7 +11,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,29 +25,48 @@ jobs:
           chmod +x ./build-version.sh
           ./build-version.sh "${{ github.event.inputs.version }}"
 
-      - name: Debug - list all APKs and ZIPs found
+      - name: Debug - show revanced-magisk/build (if exists)
         run: |
-          echo "Workspace root: $GITHUB_WORKSPACE"
-          find revanced-magisk -type f \( -iname '*.apk' -o -iname '*.zip' \) -print0 \
-            | xargs -0 du -b --files0-from=- 2>/dev/null \
-            | awk '{printf "%12.2f MB %s\n", $1/1024/1024, $2}' \
-            | sort -nr || true
+          echo "=== revanced-magisk/build top-level ==="
+          ls -la revanced-magisk/build || echo "revanced-magisk/build not present"
+          echo "=== show any zips/apks in build (detailed) ==="
+          find revanced-magisk/build -type f \( -iname '*.apk' -o -iname '*.zip' \) -exec du -b {} + 2>/dev/null || true
+          echo "=== if nothing above, show top-level of revanced-magisk ==="
+          ls -la revanced-magisk || true
 
-      - name: Collect APKs and ZIPs into artifacts
+      - id: collect
+        name: Collect APKs and ZIPs into artifacts (safe)
         run: |
           set -eux
           ART="$GITHUB_WORKSPACE/artifacts"
           rm -rf "$ART"
           mkdir -p "$ART"
-          # Only search inside revanced-magisk to avoid copying unwanted files
-          find revanced-magisk -type f \( -iname '*.apk' -o -iname '*.zip' \) -exec cp {} "$ART"/ \; || true
-          echo "Final artifact folder size:"
+
+          # Prefer outputs under revanced-magisk/build
+          if find revanced-magisk/build -type f \( -iname '*.apk' -o -iname '*.zip' \) -print -quit 2>/dev/null; then
+            echo "Collecting from revanced-magisk/build"
+            find revanced-magisk/build -type f \( -iname '*.apk' -o -iname '*.zip' \) -exec cp {} "$ART"/ \; || true
+          else
+            echo "No files in revanced-magisk/build, falling back to revanced-magisk root"
+            find revanced-magisk -type f \( -iname '*.apk' -o -iname '*.zip' \) -exec cp {} "$ART"/ \; || true
+          fi
+
+          # Count and show what we collected
+          COUNT=$(find "$ART" -type f | wc -l)
+          echo "collected_count=$COUNT" >> $GITHUB_OUTPUT
+          echo "Artifacts folder size and listing:"
           du -sh "$ART" || true
-          echo "Files in artifact folder:"
           ls -lh "$ART" || true
 
-      - name: Upload APKs and ZIPs
+      - name: Upload APKs and ZIPs (only if we collected files)
+        if: ${{ steps.collect.outputs.collected_count != '0' }}
         uses: actions/upload-artifact@v4
         with:
           name: youtube-build-artifacts
           path: ${{ github.workspace }}/artifacts
+
+      - name: No artifacts found (helpful message)
+        if: ${{ steps.collect.outputs.collected_count == '0' }}
+        run: |
+          echo "No APK or ZIP artifacts were found in revanced-magisk/build or revanced-magisk."
+          echo "Check the 'Run build-version.sh' logs; the build printed where it put outputs."
