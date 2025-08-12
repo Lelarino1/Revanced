@@ -26,61 +26,48 @@ jobs:
           ./build-version.sh "${{ github.event.inputs.version }}"
 
       - id: collect
-        name: Collect the four desired artifacts only
+        name: Collect exactly the 4 desired artifacts (forgiving matching)
         run: |
           set -eux
 
           VERSION="${{ github.event.inputs.version }}"
-          # If user passed "auto", match any version string
-          if [ "$VERSION" = "auto" ]; then
-            PV="*"
-          else
-            PV="$VERSION"
-          fi
-
           ART="$GITHUB_WORKSPACE/artifacts"
           rm -rf "$ART"
           mkdir -p "$ART"
 
-          # Patterns to find (case-insensitive)
-          patterns=(
-            "youtube-anddea-revanced*${PV}*-arm64-v8a.apk"
-            "youtube-anddea-revanced-magisk*${PV}*-arm64-v8a.zip"
-            "yt_music-anddea-revanced*${PV}*-arm64-v8a.apk"
-            "yt_music-anddea-revanced-magisk*${PV}*-arm64-v8a.zip"
-          )
+          # Patterns that are forgiving with or without 'v' and with hyphens/underscores:
+          declare -A patterns
+          patterns[yt_nonroot]="*youtube*anddea*revanced*arm64*v8a*.apk"
+          patterns[yt_root]="*youtube*anddea*revanced*magisk*arm64*v8a*.zip"
+          patterns[ytm_nonroot]="*yt*_music*anddea*revanced*arm64*v8a*.apk"
+          patterns[ytm_root]="*yt*_music*anddea*revanced*magisk*arm64*v8a*.zip"
 
-          # Search inside revanced-magisk (prefer build folder if present)
-          SEARCH_DIRS=("revanced-magisk/build" "revanced-magisk")
+          # Exclude artifacts dir to avoid recursion
+          EXCLUDE_DIR="$GITHUB_WORKSPACE/artifacts"
 
-          for pat in "${patterns[@]}"; do
-            found=""
-            for d in "${SEARCH_DIRS[@]}"; do
-              # find first match (case-insensitive)
-              candidate=$(find "$d" -type f -iname "$pat" -print -quit 2>/dev/null || true)
-              if [ -n "$candidate" ]; then
-                found="$candidate"
-                break
-              fi
-            done
+          for key in "${!patterns[@]}"; do
+            pat="${patterns[$key]}"
+            echo "Searching for pattern: $pat"
 
-            if [ -n "$found" ]; then
-              echo "Found: $found"
-              # copy without parent dirs, avoid duplicates
-              base=$(basename "$found")
-              # if file already exists with same name, append suffix to avoid overwrite
+            # Find the first matching file in workspace (case-insensitive), excluding artifacts dir:
+            candidate=$(find "$GITHUB_WORKSPACE" -path "$EXCLUDE_DIR" -prune -o -type f -iname "$pat" -print -quit 2>/dev/null || true)
+
+            if [ -n "$candidate" ]; then
+              echo "Found ($key): $candidate"
+              base=$(basename "$candidate")
+              # Ensure unique filename in artifacts (avoid overwriting)
               if [ -e "$ART/$base" ]; then
-                echo "Warning: $base already exists in artifacts, creating unique name"
-                cp "$found" "$ART/${base%.apk}-${RANDOM}.apk" || cp "$found" "$ART/${base%.zip}-${RANDOM}.zip" || true
+                # append key suffix
+                cp "$candidate" "$ART/${base%.*}-$key.${base##*.}"
               else
-                cp "$found" "$ART/"
+                cp "$candidate" "$ART/"
               fi
             else
-              echo "Not found for pattern: $pat"
+              echo "Not found for pattern ($key): $pat"
             fi
           done
 
-          # Final reporting
+          # Show what we collected
           COUNT=$(find "$ART" -type f | wc -l)
           echo "collected_count=$COUNT" >> $GITHUB_OUTPUT
           echo "Artifacts folder size and listing:"
@@ -98,4 +85,4 @@ jobs:
         if: ${{ steps.collect.outputs.collected_count == '0' }}
         run: |
           echo "No matching artifacts were found."
-          echo "Check the build log for where files were placed or paste the Locate output here and I'll refine patterns."
+          echo "Please paste the output of the 'Run build-version.sh' step and the 'Collect exactly ...' step so I can refine patterns."
