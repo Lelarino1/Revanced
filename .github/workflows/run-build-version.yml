@@ -25,51 +25,62 @@ jobs:
           chmod +x ./build-version.sh
           ./build-version.sh "${{ github.event.inputs.version }}"
 
-      - name: Locate outputs (thorough search)
-        run: |
-          set -eux
-          echo "=== Current working dir (for build step) ==="
-          echo "PWD: $(pwd)"
-          echo "Listing revanced-magisk top-level:"
-          ls -la revanced-magisk || true
-          echo "Listing revanced-magisk/build (if exists):"
-          ls -la revanced-magisk/build || true
-
-          echo
-          echo "=== Newest files under revanced-magisk (most recent first) ==="
-          # show newest 200 files in revanced-magisk with timestamps
-          find revanced-magisk -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk '{printf "%s\n", $0}' | sed -n '1,200p' || true
-
-          echo
-          echo "=== Any APK/ZIP under the workspace (size + path) ==="
-          find "$GITHUB_WORKSPACE" -type f \( -iname '*.apk' -o -iname '*.zip' \) -printf '%s %p\n' 2>/dev/null | sort -nr | awk '{printf "%.2f MB\t%s\n", $1/1024/1024, $2}' | sed -n '1,200p' || true
-
-          echo
-          echo "=== Any APK/ZIP under /home/runner modified in last 60 minutes (size + path) ==="
-          # search the runner home (where some tools place outputs)
-          find /home/runner -type f \( -iname '*.apk' -o -iname '*.zip' \) -mmin -60 -printf '%s %p\n' 2>/dev/null | sort -nr | awk '{printf "%.2f MB\t%s\n", $1/1024/1024, $2}' | sed -n '1,200p' || true
-
       - id: collect
-        name: Collect APKs and ZIPs into artifacts (safe)
+        name: Collect the four desired artifacts only
         run: |
           set -eux
+
+          VERSION="${{ github.event.inputs.version }}"
+          # If user passed "auto", match any version string
+          if [ "$VERSION" = "auto" ]; then
+            PV="*"
+          else
+            PV="$VERSION"
+          fi
+
           ART="$GITHUB_WORKSPACE/artifacts"
           rm -rf "$ART"
           mkdir -p "$ART"
 
-          # Copy matches under workspace first (preferred)
-          echo "Collecting matches under workspace..."
-          find "$GITHUB_WORKSPACE" -type f \( -iname '*.apk' -o -iname '*.zip' \) -exec cp {} "$ART"/ \; || true
+          # Patterns to find (case-insensitive)
+          patterns=(
+            "youtube-anddea-revanced*${PV}*-arm64-v8a.apk"
+            "youtube-anddea-revanced-magisk*${PV}*-arm64-v8a.zip"
+            "yt_music-anddea-revanced*${PV}*-arm64-v8a.apk"
+            "yt_music-anddea-revanced-magisk*${PV}*-arm64-v8a.zip"
+          )
 
-          # If nothing collected, also try /home/runner (recent files)
-          COUNT=$(find "$ART" -type f | wc -l)
-          if [ "$COUNT" -eq 0 ]; then
-            echo "No artifacts found under workspace; searching /home/runner for recent files..."
-            # copy anything modified in last hour (adjust -mmin if needed)
-            find /home/runner -type f \( -iname '*.apk' -o -iname '*.zip' \) -mmin -60 -exec cp {} "$ART"/ \; || true
-          fi
+          # Search inside revanced-magisk (prefer build folder if present)
+          SEARCH_DIRS=("revanced-magisk/build" "revanced-magisk")
 
-          # Final count & listing
+          for pat in "${patterns[@]}"; do
+            found=""
+            for d in "${SEARCH_DIRS[@]}"; do
+              # find first match (case-insensitive)
+              candidate=$(find "$d" -type f -iname "$pat" -print -quit 2>/dev/null || true)
+              if [ -n "$candidate" ]; then
+                found="$candidate"
+                break
+              fi
+            done
+
+            if [ -n "$found" ]; then
+              echo "Found: $found"
+              # copy without parent dirs, avoid duplicates
+              base=$(basename "$found")
+              # if file already exists with same name, append suffix to avoid overwrite
+              if [ -e "$ART/$base" ]; then
+                echo "Warning: $base already exists in artifacts, creating unique name"
+                cp "$found" "$ART/${base%.apk}-${RANDOM}.apk" || cp "$found" "$ART/${base%.zip}-${RANDOM}.zip" || true
+              else
+                cp "$found" "$ART/"
+              fi
+            else
+              echo "Not found for pattern: $pat"
+            fi
+          done
+
+          # Final reporting
           COUNT=$(find "$ART" -type f | wc -l)
           echo "collected_count=$COUNT" >> $GITHUB_OUTPUT
           echo "Artifacts folder size and listing:"
@@ -86,5 +97,5 @@ jobs:
       - name: No artifacts found (helpful message)
         if: ${{ steps.collect.outputs.collected_count == '0' }}
         run: |
-          echo "No APK or ZIP artifacts were collected."
-          echo "Please paste the output of the 'Locate outputs (thorough search)' step here and I'll analyze it."
+          echo "No matching artifacts were found."
+          echo "Check the build log for where files were placed or paste the Locate output here and I'll refine patterns."
