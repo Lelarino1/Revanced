@@ -25,14 +25,29 @@ jobs:
           chmod +x ./build-version.sh
           ./build-version.sh "${{ github.event.inputs.version }}"
 
-      - name: Debug - show revanced-magisk/build (if exists)
+      - name: Locate outputs (thorough search)
         run: |
-          echo "=== revanced-magisk/build top-level ==="
-          ls -la revanced-magisk/build || echo "revanced-magisk/build not present"
-          echo "=== show any zips/apks in build (detailed) ==="
-          find revanced-magisk/build -type f \( -iname '*.apk' -o -iname '*.zip' \) -exec du -b {} + 2>/dev/null || true
-          echo "=== if nothing above, show top-level of revanced-magisk ==="
+          set -eux
+          echo "=== Current working dir (for build step) ==="
+          echo "PWD: $(pwd)"
+          echo "Listing revanced-magisk top-level:"
           ls -la revanced-magisk || true
+          echo "Listing revanced-magisk/build (if exists):"
+          ls -la revanced-magisk/build || true
+
+          echo
+          echo "=== Newest files under revanced-magisk (most recent first) ==="
+          # show newest 200 files in revanced-magisk with timestamps
+          find revanced-magisk -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk '{printf "%s\n", $0}' | sed -n '1,200p' || true
+
+          echo
+          echo "=== Any APK/ZIP under the workspace (size + path) ==="
+          find "$GITHUB_WORKSPACE" -type f \( -iname '*.apk' -o -iname '*.zip' \) -printf '%s %p\n' 2>/dev/null | sort -nr | awk '{printf "%.2f MB\t%s\n", $1/1024/1024, $2}' | sed -n '1,200p' || true
+
+          echo
+          echo "=== Any APK/ZIP under /home/runner modified in last 60 minutes (size + path) ==="
+          # search the runner home (where some tools place outputs)
+          find /home/runner -type f \( -iname '*.apk' -o -iname '*.zip' \) -mmin -60 -printf '%s %p\n' 2>/dev/null | sort -nr | awk '{printf "%.2f MB\t%s\n", $1/1024/1024, $2}' | sed -n '1,200p' || true
 
       - id: collect
         name: Collect APKs and ZIPs into artifacts (safe)
@@ -42,16 +57,19 @@ jobs:
           rm -rf "$ART"
           mkdir -p "$ART"
 
-          # Prefer outputs under revanced-magisk/build
-          if find revanced-magisk/build -type f \( -iname '*.apk' -o -iname '*.zip' \) -print -quit 2>/dev/null; then
-            echo "Collecting from revanced-magisk/build"
-            find revanced-magisk/build -type f \( -iname '*.apk' -o -iname '*.zip' \) -exec cp {} "$ART"/ \; || true
-          else
-            echo "No files in revanced-magisk/build, falling back to revanced-magisk root"
-            find revanced-magisk -type f \( -iname '*.apk' -o -iname '*.zip' \) -exec cp {} "$ART"/ \; || true
+          # Copy matches under workspace first (preferred)
+          echo "Collecting matches under workspace..."
+          find "$GITHUB_WORKSPACE" -type f \( -iname '*.apk' -o -iname '*.zip' \) -exec cp {} "$ART"/ \; || true
+
+          # If nothing collected, also try /home/runner (recent files)
+          COUNT=$(find "$ART" -type f | wc -l)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "No artifacts found under workspace; searching /home/runner for recent files..."
+            # copy anything modified in last hour (adjust -mmin if needed)
+            find /home/runner -type f \( -iname '*.apk' -o -iname '*.zip' \) -mmin -60 -exec cp {} "$ART"/ \; || true
           fi
 
-          # Count and show what we collected
+          # Final count & listing
           COUNT=$(find "$ART" -type f | wc -l)
           echo "collected_count=$COUNT" >> $GITHUB_OUTPUT
           echo "Artifacts folder size and listing:"
@@ -68,5 +86,5 @@ jobs:
       - name: No artifacts found (helpful message)
         if: ${{ steps.collect.outputs.collected_count == '0' }}
         run: |
-          echo "No APK or ZIP artifacts were found in revanced-magisk/build or revanced-magisk."
-          echo "Check the 'Run build-version.sh' logs; the build printed where it put outputs."
+          echo "No APK or ZIP artifacts were collected."
+          echo "Please paste the output of the 'Locate outputs (thorough search)' step here and I'll analyze it."
