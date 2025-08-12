@@ -14,14 +14,32 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
 
       - name: Run build-version.sh
         working-directory: revanced-magisk
         run: |
+          set -eux                # fail fast, print commands
           chmod +x ./build-version.sh
           ./build-version.sh "${{ github.event.inputs.version }}"
-      - name: Upload artifact (adjust path)
+
+      - name: Debug - list produced APKs and ZIPs
+        run: |
+          echo "Workspace: $GITHUB_WORKSPACE"
+          # Find .apk and .zip files anywhere in the workspace
+          find $GITHUB_WORKSPACE -type f \( -iname '*.apk' -o -iname '*.zip' \) -print || true
+
+      - name: Collect artifacts into single folder
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/artifacts
+          # Copy any found APK/ZIP into $GITHUB_WORKSPACE/artifacts preserving folder structure
+          find $GITHUB_WORKSPACE -type f \( -iname '*.apk' -o -iname '*.zip' \) -exec cp --parents {} $GITHUB_WORKSPACE/artifacts/ \; || true
+          ls -R $GITHUB_WORKSPACE/artifacts || true
+
+      - name: Upload APKs and ZIPs
         uses: actions/upload-artifact@v4
         with:
-          name: youtube-build
-          path: revanced-magisk/out/*.apk
+          name: youtube-build-artifacts
+          path: ${{ github.workspace }}/artifacts
