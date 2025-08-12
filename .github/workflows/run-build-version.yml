@@ -11,6 +11,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,22 +22,30 @@ jobs:
       - name: Run build-version.sh
         working-directory: revanced-magisk
         run: |
-          set -eux                # fail fast, print commands
+          set -eux
           chmod +x ./build-version.sh
           ./build-version.sh "${{ github.event.inputs.version }}"
 
-      - name: Debug - list produced APKs and ZIPs
+      - name: Debug - list all APKs and ZIPs found
         run: |
-          echo "Workspace: $GITHUB_WORKSPACE"
-          # Find .apk and .zip files anywhere in the workspace
-          find $GITHUB_WORKSPACE -type f \( -iname '*.apk' -o -iname '*.zip' \) -print || true
+          echo "Workspace root: $GITHUB_WORKSPACE"
+          find revanced-magisk -type f \( -iname '*.apk' -o -iname '*.zip' \) -print0 \
+            | xargs -0 du -b --files0-from=- 2>/dev/null \
+            | awk '{printf "%12.2f MB %s\n", $1/1024/1024, $2}' \
+            | sort -nr || true
 
-      - name: Collect artifacts into single folder
+      - name: Collect APKs and ZIPs into artifacts
         run: |
-          mkdir -p $GITHUB_WORKSPACE/artifacts
-          # Copy any found APK/ZIP into $GITHUB_WORKSPACE/artifacts preserving folder structure
-          find $GITHUB_WORKSPACE -type f \( -iname '*.apk' -o -iname '*.zip' \) -exec cp --parents {} $GITHUB_WORKSPACE/artifacts/ \; || true
-          ls -R $GITHUB_WORKSPACE/artifacts || true
+          set -eux
+          ART="$GITHUB_WORKSPACE/artifacts"
+          rm -rf "$ART"
+          mkdir -p "$ART"
+          # Only search inside revanced-magisk to avoid copying unwanted files
+          find revanced-magisk -type f \( -iname '*.apk' -o -iname '*.zip' \) -exec cp {} "$ART"/ \; || true
+          echo "Final artifact folder size:"
+          du -sh "$ART" || true
+          echo "Files in artifact folder:"
+          ls -lh "$ART" || true
 
       - name: Upload APKs and ZIPs
         uses: actions/upload-artifact@v4
