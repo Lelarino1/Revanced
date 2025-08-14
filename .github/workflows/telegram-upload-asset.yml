@@ -23,39 +23,49 @@ jobs:
           TAG=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/releases/latest" | jq -r '.tag_name')
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Download release assets
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir assets
-          RELEASE_TAG=${{ steps.get_tag.outputs.tag }}
-          ASSETS_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/releases/tags/$RELEASE_TAG")
-          echo "$ASSETS_JSON" | jq -r '.assets[] | .browser_download_url' | while read url; do
-            wget "$url" -P assets/
-          done
-
-      - name: Get release body
-        id: get_body
+      - name: Get release info
+        id: get_release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RELEASE_TAG=${{ steps.get_tag.outputs.tag }}
-          BODY=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/releases/tags/$RELEASE_TAG" | jq -r '.body')
+          RELEASE_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/releases/tags/$RELEASE_TAG")
+          echo "$RELEASE_JSON" | jq -r '.body' > body.txt
           echo "body<<EOF" >> $GITHUB_OUTPUT
-          echo "$BODY" >> $GITHUB_OUTPUT
+          cat body.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+          echo "$RELEASE_JSON" > release.json
 
       - name: Send release notes to Telegram
         env:
           TG_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT: -1002692922050
         run: |
-          BODY="${{ steps.get_body.outputs.body }}"
-          # Process the body similar to your existing sed for Telegram Markdown compatibility
-          PROCESSED_BODY=$(echo "$BODY" | sed 's/^\* \*\*/↪ \*\*/g; s/^\* `/↪ \*\*/g; s/`/\*/g; s/^\* /\↪/g; s/\*\*/\*/g; s/###//g; s/^- /↪ /g; /^==/d;')
+          BODY=$(cat body.txt)
+          # Process the body similar to your existing sed for Telegram Markdown compatibility, plus escape special Markdown characters
+          PROCESSED_BODY=$(echo "$BODY" | sed 's/^\* \*\*/↪ \*\*/g; s/^\* `/↪ \*\*/g; s/`/\*/g; s/^\* /\↪/g; s/\*\*/\*/g; s/###//g; s/^- /↪ /g; /^==/d; s/_/\\_/g; s/\*/\\*/g; s/`/\\`/g')
+          NL=$'\n'
+          APKS=""
+          MODULES=""
+          jq -r '.assets[] | .name + "|" + .browser_download_url' release.json | while IFS='|' read -r name url; do
+            if [[ $name = *.apk ]]; then
+              APKS+="${NL}📦[${name}](${url})"
+            elif [[ $name = *.zip ]]; then
+              MODULES+="${NL}📦[${name}](${url})"
+            fi
+          done
+          APKS=${APKS#"$NL"}
+          MODULES=${MODULES#"$NL"}
           MSG="*New release published!*
 
-          ${PROCESSED_BODY}"
+          ${PROCESSED_BODY}
+
+          *▼ Download Links:*
+          Modules:
+          ${MODULES}
+
+          APKs:
+          ${APKS}"
           # Truncate if too long (Telegram message limit ~4096 chars)
           MSG=${MSG:0:4000}
           curl -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
@@ -63,17 +73,3 @@ jobs:
             -d parse_mode="Markdown" \
             -d disable_web_page_preview="true" \
             -d text="$MSG"
-
-      - name: Upload assets to Telegram
-        env:
-          TG_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT: -1002692922050
-        run: |
-          cd assets
-          for file in *; do
-            if [ -f "$file" ]; then
-              curl -F chat_id="$TG_CHAT" \
-                -F document=@"$file" \
-                "https://api.telegram.org/bot$TG_TOKEN/sendDocument"
-            fi
-          done
