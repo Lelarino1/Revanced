@@ -13,8 +13,10 @@ integrations-source = "anddea/revanced-integrations"
 rv-brand = "anddea ReVanced"
 arch = "arm64-v8a"
 build-mode = "both"
+included-patches = "'Theme'"
 excluded-patches = "'Change form factor'"
-patcher-args = "-e 'Custom branding name for YouTube' -OappName=YTA"
+patcher-args = "-e 'Custom branding icon for YouTube' -OappIcon=MMT -e 'Custom branding name for YouTube' -OappName=YTA"
+
 
 [YT_music]
 apkmirror-dlurl = "https://apkmirror.com/apk/google-inc/youtube-music/"
