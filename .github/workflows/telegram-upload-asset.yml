@@ -50,32 +50,50 @@ jobs:
           TG_CHAT: -1002692922050
         run: |
           BODY=$(cat body.txt)
-          # Process the body similar to your existing sed for Telegram Markdown compatibility, plus escape special Markdown characters
+          # Process the body for Telegram Markdown compatibility
           PROCESSED_BODY=$(echo "$BODY" | sed 's/^\* \*\*/↪ \*\*/g; s/^\* `/↪ \*\*/g; s/`/\*/g; s/^\* /\↪/g; s/\*\*/\*/g; s/###//g; s/^- /↪ /g; /^==/d; s/_/\\_/g; s/\*/\\*/g; s/`/\\`/g')
+          
+          # Initialize variables
           NL=$'\n'
           APKS=""
           MODULES=""
-          jq -r '.assets[] | .name + "|" + .browser_download_url' release.json | while IFS='|' read -r name url; do
+          
+          # Process assets using process substitution instead of pipe to avoid subshell
+          while IFS='|' read -r name url; do
             if [[ $name = *.apk ]]; then
-              APKS+="${NL}📦[${name}](${url})"
+              if [[ -z "$APKS" ]]; then
+                APKS="📦[${name}](${url})"
+              else
+                APKS="${APKS}${NL}📦[${name}](${url})"
+              fi
             elif [[ $name = *.zip ]]; then
-              MODULES+="${NL}📦[${name}](${url})"
+              if [[ -z "$MODULES" ]]; then
+                MODULES="📦[${name}](${url})"
+              else
+                MODULES="${MODULES}${NL}📦[${name}](${url})"
+              fi
             fi
-          done
-          APKS=${APKS#"$NL"}
-          MODULES=${MODULES#"$NL"}
+          done < <(jq -r '.assets[] | .name + "|" + .browser_download_url' release.json)
+          
+          # Build message
           MSG="*New release published!*
 
           ${PROCESSED_BODY}
 
-          *▼ Download Links:*
-          Modules:
-          ${MODULES}
-
-          APKs:
-          ${APKS}"
+          *▼ Download Links:*"
+          
+          if [[ -n "$MODULES" ]]; then
+            MSG="${MSG}${NL}Modules:${NL}${MODULES}"
+          fi
+          
+          if [[ -n "$APKS" ]]; then
+            MSG="${MSG}${NL}${NL}APKs:${NL}${APKS}"
+          fi
+          
           # Truncate if too long (Telegram message limit ~4096 chars)
           MSG=${MSG:0:4000}
+          
+          # Send to Telegram
           curl -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
             -d chat_id="$TG_CHAT" \
             -d parse_mode="Markdown" \
