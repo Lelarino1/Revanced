@@ -1,33 +1,56 @@
 name: Upload Release to Telegram
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Build Modules"]
+    types:
+      - completed
+    branches: [main]
 
 jobs:
   upload:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Install jq
         run: sudo apt update && sudo apt install jq -y
+
+      - name: Get latest release tag
+        id: get_tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/releases/latest" | jq -r '.tag_name')
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Download release assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir assets
-          RELEASE_TAG=${{ github.event.release.tag_name }}
+          RELEASE_TAG=${{ steps.get_tag.outputs.tag }}
           ASSETS_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/releases/tags/$RELEASE_TAG")
           echo "$ASSETS_JSON" | jq -r '.assets[] | .browser_download_url' | while read url; do
             wget "$url" -P assets/
           done
+
+      - name: Get release body
+        id: get_body
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_TAG=${{ steps.get_tag.outputs.tag }}
+          BODY=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/releases/tags/$RELEASE_TAG" | jq -r '.body')
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Send release notes to Telegram
         env:
           TG_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT: -1002692922050
         run: |
-          BODY=${{ github.event.release.body }}
+          BODY="${{ steps.get_body.outputs.body }}"
           # Process the body similar to your existing sed for Telegram Markdown compatibility
           PROCESSED_BODY=$(echo "$BODY" | sed 's/^\* \*\*/↪ \*\*/g; s/^\* `/↪ \*\*/g; s/`/\*/g; s/^\* /\↪/g; s/\*\*/\*/g; s/###//g; s/^- /↪ /g; /^==/d;')
           MSG="*New release published!*
