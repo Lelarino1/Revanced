@@ -29,7 +29,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RELEASE_TAG=${{ steps.get_tag.outputs.tag }}
-          RELEASE_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/releases/tags/$RELEASE_TAG")
+          for i in {1..5}; do
+            RELEASE_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/releases/tags/$RELEASE_TAG")
+            ASSETS_COUNT=$(echo "$RELEASE_JSON" | jq '.assets | length')
+            echo "Attempt $i: Assets count = $ASSETS_COUNT"
+            if (( ASSETS_COUNT > 0 )); then
+              break
+            fi
+            sleep 10
+          done
           echo "$RELEASE_JSON" | jq -r '.body' > body.txt
           echo "body<<EOF" >> $GITHUB_OUTPUT
           cat body.txt >> $GITHUB_OUTPUT
