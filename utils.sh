@@ -307,6 +307,35 @@ apk_mirror_search() {
 	done
 	return 1
 }
+
+req() {
+	local url="$1" output="$2"
+	local session_id="apkmirror_$(date +%s)_$(shuf -i 1000-9999 -n 1)"
+	
+	if [ "$output" = "-" ]; then
+		curl -s -L \
+			-A "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0" \
+			-H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
+			-H "Accept-Language: en-US,en;q=0.5" \
+			-H "Connection: keep-alive" \
+			-H "Cookie: PHPSESSID=$session_id" \
+			--connect-timeout 30 \
+			--max-time 60 \
+			"$url"
+	else
+		curl -L \
+			-A "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0" \
+			-H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
+			-H "Accept-Language: en-US,en;q=0.5" \
+			-H "Connection: keep-alive" \
+			-H "Cookie: PHPSESSID=$session_id" \
+			--connect-timeout 30 \
+			--max-time 300 \
+			-o "$output" \
+			"$url"
+	fi
+}
+
 dl_apkmirror() {
 	local url=$1 version=${2// /-} output=$3 arch=$4 dpi=$5 is_bundle=false
 	if [ -f "${output}.apkm" ]; then
@@ -331,7 +360,6 @@ dl_apkmirror() {
 		url=$(echo "$resp" | $HTMLQ --base https://www.apkmirror.com --attribute href "a.btn") || return 1
 		url=$(req "$url" - | $HTMLQ --base https://www.apkmirror.com --attribute href "span > a[rel = nofollow]") || return 1
 	fi
-
 	if [ "$is_bundle" = true ]; then
 		req "$url" "${output}.apkm" || return 1
 		merge_splits "${output}.apkm" "${output}"
@@ -339,6 +367,7 @@ dl_apkmirror() {
 		req "$url" "${output}" || return 1
 	fi
 }
+
 get_apkmirror_vers() {
 	local vers apkm_resp
 	apkm_resp=$(req "https://www.apkmirror.com/uploads/?appcategory=${__APKMIRROR_CAT__}" -)
@@ -355,7 +384,9 @@ get_apkmirror_vers() {
 		echo "$vers"
 	fi
 }
+
 get_apkmirror_pkg_name() { sed -n 's;.*id=\(.*\)" class="accent_color.*;\1;p' <<<"$__APKMIRROR_RESP__"; }
+
 get_apkmirror_resp() {
 	__APKMIRROR_RESP__=$(req "${1}" -)
 	__APKMIRROR_CAT__="${1##*/}"
