@@ -16,7 +16,7 @@ build-mode = "both"
 included-patches = "'Theme'"
 excluded-patches = "'Change form factor'"
 patcher-args = "-e 'Custom branding icon for YouTube' -OappIcon=MMT -e 'Custom branding name for YouTube' -OappName=YTA"
-
+version = "20.21.37"
 
 [YT_music]
 apkmirror-dlurl = "https://apkmirror.com/apk/google-inc/youtube-music/"
