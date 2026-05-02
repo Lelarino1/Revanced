@@ -220,7 +220,7 @@ _req() {
 			return
 		fi
 	fi
-	if ! curl -L -c "$TEMP_DIR/cookie.txt" -b "$TEMP_DIR/cookie.txt" --connect-timeout 10 --max-time 300 --speed-limit 50000 --speed-time 30 --retry 2 --retry-delay 5 --retry-max-time 600 --fail -s -S "$@" "$ip" -o "$dlp"; then
+	if ! curl -L -c "$TEMP_DIR/cookie.txt" -b "$TEMP_DIR/cookie.txt" --connect-timeout 10 --max-time 300 --speed-limit 500000 --speed-time 30 --retry 2 --retry-delay 5 --retry-max-time 600 --fail -s -S "$@" "$ip" -o "$dlp"; then
 		epr "Request failed: $ip"
 		return 1
 	fi
