@@ -53,13 +53,18 @@ jobs:
         run: |
           UTILS=$(find . -name "utils.sh" | head -1)
           echo "Patching $UTILS"
-          # Reorder download sources: try apkmirror first, archive last
-          sed -i 's/DL_SRCS=("direct" "archive" "apkmirror" "uptodown")/DL_SRCS=("direct" "apkmirror" "uptodown" "archive")/' "$UTILS"
-          # Add speed-limit to kill slow/stalled downloads within 30s
-          sed -i 's/--connect-timeout 10 --retry 1 --fail/--connect-timeout 10 --max-time 300 --speed-limit 500000 --speed-time 30 --retry 2 --retry-delay 5 --retry-max-time 600 --fail/' "$UTILS"
+          # Remove uptodown from sources entirely:
+          # - It serves wrong-signature APK variants (carrier/OEM builds)
+          # - Its 20-page version lookup loop causes 40+ min hangs from GitHub Actions
+          # Remaining sources: apkmirror (fast fail on 403) → archive.org (j-hc curated, correct sigs)
+          sed -i 's/DL_SRCS=("direct" "archive" "apkmirror" "uptodown")/DL_SRCS=("direct" "apkmirror" "archive")/' "$UTILS"
+          sed -i 's/DL_SRCS=("direct" "apkmirror" "uptodown" "archive")/DL_SRCS=("direct" "apkmirror" "archive")/' "$UTILS"
+          # Add max-time and speed-limit as safety net for stalled archive.org downloads
+          sed -i 's/--connect-timeout 10 --retry 1 --fail/--connect-timeout 10 --max-time 600 --speed-limit 50000 --speed-time 60 --retry 2 --retry-delay 5 --retry-max-time 1200 --fail/' "$UTILS"
           # Verify changes applied
           echo "=== DL_SRCS ===" && grep "DL_SRCS=" "$UTILS"
           echo "=== curl ===" && grep "connect-timeout" "$UTILS"
+          echo "=== uptodown loop ===" && grep "for i in {1\.\." "$UTILS"
 
       - name: Build modules/APKs
         run: if [ -f "config.json" ]; then ./build.sh config.json; else ./build.sh config.toml; fi
