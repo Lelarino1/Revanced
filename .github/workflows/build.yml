@@ -64,7 +64,19 @@ jobs:
           # Verify changes applied
           echo "=== DL_SRCS ===" && grep "DL_SRCS=" "$UTILS"
           echo "=== curl ===" && grep "connect-timeout" "$UTILS"
-          echo "=== uptodown loop ===" && grep "for i in {1\.\." "$UTILS"
+
+      - name: Patch sig.txt
+        run: |
+          MUSIC_PKG="com.google.android.apps.youtube.music"
+          MUSIC_SIG="a2a1ad7ba7f41dfca4514e2afeb90691719af6d0fdbed4b09bbf0ed897701ceb"
+          if grep -q "$MUSIC_PKG" sig.txt; then
+            sed -i "/${MUSIC_PKG}/c\\${MUSIC_SIG} ${MUSIC_PKG}" sig.txt
+            echo "Updated sig.txt for $MUSIC_PKG"
+          else
+            echo "${MUSIC_SIG} ${MUSIC_PKG}" >> sig.txt
+            echo "Added sig.txt entry for $MUSIC_PKG"
+          fi
+          echo "=== sig.txt ===" && cat sig.txt
 
       - name: Build modules/APKs
         run: if [ -f "config.json" ]; then ./build.sh config.json; else ./build.sh config.toml; fi
