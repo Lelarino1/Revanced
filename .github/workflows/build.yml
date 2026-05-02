@@ -49,6 +49,18 @@ jobs:
           sudo apt-get install -y dos2unix
           find . -name "*.sh" -exec dos2unix {} +
 
+      - name: Patch utils.sh
+        run: |
+          UTILS=$(find . -name "utils.sh" | head -1)
+          echo "Patching $UTILS"
+          # Reorder download sources: try apkmirror first, archive last
+          sed -i 's/DL_SRCS=("direct" "archive" "apkmirror" "uptodown")/DL_SRCS=("direct" "apkmirror" "uptodown" "archive")/' "$UTILS"
+          # Add speed-limit to kill slow/stalled downloads within 30s
+          sed -i 's/--connect-timeout 10 --retry 1 --fail/--connect-timeout 10 --max-time 300 --speed-limit 500000 --speed-time 30 --retry 2 --retry-delay 5 --retry-max-time 600 --fail/' "$UTILS"
+          # Verify changes applied
+          echo "=== DL_SRCS ===" && grep "DL_SRCS=" "$UTILS"
+          echo "=== curl ===" && grep "connect-timeout" "$UTILS"
+
       - name: Build modules/APKs
         run: if [ -f "config.json" ]; then ./build.sh config.json; else ./build.sh config.toml; fi
         env:
@@ -159,4 +171,3 @@ jobs:
           MSG=${MSG:0:9450}
           POST="https://api.telegram.org/bot${TG_TOKEN}/sendMessage"
           curl -X POST --data-urlencode "parse_mode=Markdown" --data-urlencode "disable_web_page_preview=true" --data-urlencode "text=${MSG}" --data-urlencode "chat_id=${TG_CHAT}" "$POST"
-
