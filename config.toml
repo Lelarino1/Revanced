@@ -9,7 +9,7 @@ parallel-jobs = 1
 [YouTube-Morphe]
 app-name = "YouTube"
 patches-source = "anddea/revanced-patches"
-cli-source = "MorpheApp/morphe-cli"
+cli-source = "MorpheApp/morphe-desktop"
 rv-brand = "Morphe"
 build-mode = "both"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube"
@@ -19,7 +19,7 @@ archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.google.android.y
 [Music-Morphe]
 app-name = "Music"
 patches-source = "anddea/revanced-patches"
-cli-source = "MorpheApp/morphe-cli"
+cli-source = "MorpheApp/morphe-desktop"
 rv-brand = "Morphe"
 build-mode = "both"
 arch = "both"
