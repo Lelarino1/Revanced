@@ -56,14 +56,21 @@ jobs:
           # Remove uptodown from sources entirely:
           # - It serves wrong-signature APK variants (carrier/OEM builds)
           # - Its 20-page version lookup loop causes 40+ min hangs from GitHub Actions
-          # Remaining sources: apkmirror (fast fail on 403) → archive.org (j-hc curated, correct sigs)
+          # Remaining sources: apkmirror (fast fail on 403) â†’ archive.org (j-hc curated, correct sigs)
           sed -i 's/DL_SRCS=("direct" "archive" "apkmirror" "uptodown")/DL_SRCS=("direct" "apkmirror" "archive")/' "$UTILS"
           sed -i 's/DL_SRCS=("direct" "apkmirror" "uptodown" "archive")/DL_SRCS=("direct" "apkmirror" "archive")/' "$UTILS"
           # Add max-time and speed-limit as safety net for stalled archive.org downloads
           sed -i 's/--connect-timeout 10 --retry 1 --fail/--connect-timeout 10 --max-time 600 --speed-limit 50000 --speed-time 60 --retry 2 --retry-delay 5 --retry-max-time 1200 --fail/' "$UTILS"
+          # Fix java() wrapper: `env -i` wipes the ENTIRE environment, including PATH,
+          # so every `java` call was silently falling back to whatever `java` the runner
+          # resolves via its default system path instead of the Zulu 21 that setup-java
+          # just installed. Harmless while every jar targeted <=Java 17 bytecode, but it
+          # breaks (UnsupportedClassVersionError) now that a cli-source jar needs 21.
+          sed -i 's/env -i java --enable-native-access=ALL-UNNAMED/env -i PATH="$PATH" JAVA_HOME="${JAVA_HOME-}" java --enable-native-access=ALL-UNNAMED/' "$UTILS"
           # Verify changes applied
           echo "=== DL_SRCS ===" && grep "DL_SRCS=" "$UTILS"
           echo "=== curl ===" && grep "connect-timeout" "$UTILS"
+          echo "=== java() ===" && grep "^java()" "$UTILS"
 
       - name: Patch sig.txt
         run: |
@@ -168,20 +175,20 @@ jobs:
           for OUTPUT in *; do
             DL_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}/${OUTPUT}"
             if [[ $OUTPUT = *.apk ]]; then
-              APKS+="${NL}📦[${OUTPUT}](${DL_URL})"
+              APKS+="${NL}ðŸ“¦[${OUTPUT}](${DL_URL})"
             elif [[ $OUTPUT = *.zip ]]; then
-              MODULES+="${NL}📦[${OUTPUT}](${DL_URL})"
+              MODULES+="${NL}ðŸ“¦[${OUTPUT}](${DL_URL})"
             fi
           done
           MODULES=${MODULES#"$NL"}
           APKS=${APKS#"$NL"}
 
-          BODY="$(sed 's/^\* \*\*/↪ \*\*/g; s/^\* `/↪ \*\*/g; s/`/\*/g; s/^\* /\↪/g; s/\*\*/\*/g; s/###//g; s/^- /↪ /g; /^==/d;' ../build.md)"
+          BODY="$(sed 's/^\* \*\*/â†ª \*\*/g; s/^\* `/â†ª \*\*/g; s/`/\*/g; s/^\* /\â†ª/g; s/\*\*/\*/g; s/###//g; s/^- /â†ª /g; /^==/d;' ../build.md)"
           MSG="*New build!*
 
           ${BODY}
 
-          *▼ Download Links:*
+          *â–¼ Download Links:*
           Modules:
           ${MODULES}
 
