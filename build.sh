@@ -81,7 +81,10 @@ for table_name in $(toml_get_table_names); do
 		epr "Could not get prebuilts"
 		continue
 	fi
-	read -r cli_jar patches_jar <<<"$PREBUILTS"
+	# get_prebuilts emits the patch bundle first, followed by the CLI jar.
+	# Keep the assignments in that order: swapping them makes Java try to run the
+	# .mpp bundle and fail with "no main manifest attribute".
+	read -r patches_jar cli_jar <<<"$PREBUILTS"
 	app_args[cli]=$cli_jar
 	app_args[ptjar]=$patches_jar
 	app_args[rv_brand]=$(toml_get "$t" rv-brand) || app_args[rv_brand]=$DEF_RV_BRAND
