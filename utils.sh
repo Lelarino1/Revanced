@@ -620,9 +620,9 @@ build_rv() {
 	[ "${args[exclusive_patches]}" = true ] && p_patcher_args+=("--exclusive")
 
 	local tried_dl=()
-	if [ "${args[pkg_name]}" ]; then
-		pkg_name="${args[pkg_name]}"
-	else
+	if [ -n "${args[pkg_name]-}" ]; then
+    pkg_name="${args[pkg_name]}"
+    else
 		for dl_p in "${DL_SRCS[@]}"; do
 			if [ -z "${args[${dl_p}_dlurl]}" ]; then continue; fi
 			if ! get_${dl_p}_resp "${args[${dl_p}_dlurl]}" || ! pkg_name=$(get_"${dl_p}"_pkg_name); then
