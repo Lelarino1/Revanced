@@ -56,9 +56,11 @@ jobs:
           # Remove uptodown from sources entirely:
           # - It serves wrong-signature APK variants (carrier/OEM builds)
           # - Its 20-page version lookup loop causes 40+ min hangs from GitHub Actions
-          # Remaining sources: apkmirror (fast fail on 403) â†’ archive.org (j-hc curated, correct sigs)
-          sed -i 's/DL_SRCS=("direct" "archive" "apkmirror" "uptodown")/DL_SRCS=("direct" "apkmirror" "archive")/' "$UTILS"
-          sed -i 's/DL_SRCS=("direct" "apkmirror" "uptodown" "archive")/DL_SRCS=("direct" "apkmirror" "archive")/' "$UTILS"
+          # Use the curated archive first. APKMirror often returns HTTP 403 to
+          # GitHub-hosted runners; it remains a fallback when the archive has
+          # no compatible APK.
+          sed -i 's/DL_SRCS=("direct" "archive" "apkmirror" "uptodown")/DL_SRCS=("direct" "archive" "apkmirror")/' "$UTILS"
+          sed -i 's/DL_SRCS=("direct" "apkmirror" "uptodown" "archive")/DL_SRCS=("direct" "archive" "apkmirror")/' "$UTILS"
           # Add max-time and speed-limit as safety net for stalled archive.org downloads
           sed -i 's/--connect-timeout 10 --retry 1 --fail/--connect-timeout 10 --max-time 600 --speed-limit 50000 --speed-time 60 --retry 2 --retry-delay 5 --retry-max-time 1200 --fail/' "$UTILS"
           # Fix java() wrapper: `env -i` wipes the ENTIRE environment, including PATH,
