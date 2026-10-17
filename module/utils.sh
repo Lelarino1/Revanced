@@ -3,6 +3,17 @@
 RVPATH=/data/adb/rvhc/${MODDIR##*/}.apk
 . "$MODDIR/config"
 
+# Magisk supports `su -M`; KernelSU variants may not. Use the init mount
+# namespace as a compatible fallback so install, service, and Action use the
+# same mount view.
+mount_exec() {
+	if su -M -c true >/dev/null 2>&1; then
+		su -M -c "$@"
+	else
+		nsenter -t 1 -m "$@"
+	fi
+}
+
 ch_desc() {
 	sed -i "s|^description=.*|description=${1}|" "$MODDIR/module.prop"
 }
@@ -19,29 +30,32 @@ pmex() {
 }
 
 get_app_version() {
-	VERSION=$(dumpsys package "$PKG_NAME" 2>&1 | grep -m1 versionName=) VERSION="${VERSION#*=}"
+	VERSION=$(dumpsys package "$PKG_NAME" 2>&1 | grep -m1 versionName=)
+	VERSION="${VERSION#*=}"
 	echo "$VERSION"
 }
 
 get_basepath() {
 	BASEPATH=$(pmex path "$PKG_NAME")
 	SVCL=$?
-
-	BASEPATH=${BASEPATH##*:} BASEPATH=${BASEPATH%/*}
+	BASEPATH=${BASEPATH##*:}
+	BASEPATH=${BASEPATH%/*}
 	echo "$BASEPATH"
 	return $SVCL
 }
 
 umount_all() {
-	su -M -c grep -F "$PKG_NAME" /proc/mounts | while read -r line; do
-		mp=${line#* } mp=${mp%% *} mp=${mp%%\\*}
-		su -M -c umount -l "${mp}"
+	mount_exec grep -F "$PKG_NAME" /proc/mounts | while read -r line; do
+		mp=${line#* }
+		mp=${mp%% *}
+		mp=${mp%%\\*}
+		mount_exec umount -l "$mp"
 	done
 	am force-stop "$PKG_NAME" || :
 }
 
 get_mounts() {
-	su -M -c grep -F "$PKG_NAME" /proc/mounts || :
+	mount_exec grep -F "$PKG_NAME" /proc/mounts || :
 }
 
 mount_rv() {
@@ -59,9 +73,12 @@ mount_rv() {
 		ch_desc_err "Error chcon: '$OP'"
 		return 1
 	fi
-	mount -o bind "$RVPATH" "${1}/base.apk"
+	if ! OP=$(mount_exec mount -o bind "$RVPATH" "${1}/base.apk" 2>&1); then
+		ch_desc_err "Mount failed: '$OP'"
+		return 1
+	fi
 	am force-stop "$PKG_NAME"
-	cp -f "$MODDIR/module.prop.orig" "$MODDIR/module.prop"
+	[ -f "$MODDIR/module.prop.orig" ] && cp -f "$MODDIR/module.prop.orig" "$MODDIR/module.prop"
 	return 0
 }
 

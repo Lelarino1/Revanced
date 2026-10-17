@@ -26,8 +26,14 @@ until
 do sleep 1; done
 if [ ! -f ~/.rvmm_"$(date '+%Y%m')" ]; then
 	pr "Setting up environment..."
-	yes "" | pkg update -y && pkg upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" && pkg install -y git curl jq openjdk-17 zip
+	yes "" | pkg update -y && pkg upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" && pkg install -y git curl jq openjdk-21 zip
 	: >~/.rvmm_"$(date '+%Y%m')"
+fi
+# The monthly setup marker may predate the Java 21 requirement. Upgrade the
+# runtime on demand rather than waiting for the next setup cycle.
+if ! java -version 2>&1 | grep -Eq 'version "(2[1-9]|[3-9][0-9])'; then
+	pr "Installing Java 21 required by the current patcher"
+	pkg install -y openjdk-21
 fi
 mkdir -p /sdcard/Download/revanced-magisk-module/
 

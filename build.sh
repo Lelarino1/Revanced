@@ -13,7 +13,7 @@ if [ "${1-}" = "clean" ]; then
 fi
 
 jq --version >/dev/null || abort "\`jq\` is not installed. install it with 'apt install jq' or equivalent"
-java --version >/dev/null || abort "\`openjdk 17\` is not installed. install it with 'apt install openjdk-17-jre' or equivalent"
+java --version >/dev/null || abort "\`java\` is not installed. install it with 'apt install openjdk-21-jre' or equivalent"
 zip --version >/dev/null || abort "\`zip\` is not installed. install it with 'apt install zip' or equivalent"
 
 set_prebuilts
@@ -27,6 +27,9 @@ COMPRESSION_LEVEL=$(toml_get "$main_config_t" compression-level) || COMPRESSION_
 if ! PARALLEL_JOBS=$(toml_get "$main_config_t" parallel-jobs); then
 	if [ "$OS" = Android ]; then PARALLEL_JOBS=1; else PARALLEL_JOBS=$(nproc); fi
 fi
+# Recent CLI releases have proven unreliable when patch jobs overlap. Keep this
+# serialized until the upstream concurrency issue is resolved.
+PARALLEL_JOBS=1
 REMOVE_RV_INTEGRATIONS_CHECKS=$(toml_get "$main_config_t" remove-rv-integrations-checks) || REMOVE_RV_INTEGRATIONS_CHECKS="true"
 DEF_PATCHES_VER=$(toml_get "$main_config_t" patches-version) || DEF_PATCHES_VER="latest"
 DEF_CLI_VER=$(toml_get "$main_config_t" cli-version) || DEF_CLI_VER="latest"
@@ -119,6 +122,7 @@ for table_name in $(toml_get_table_names); do
 	if ! isoneof "${app_args[arch]}" "both" "all" "arm64-v8a" "arm-v7a" "x86_64" "x86"; then
 		abort "wrong arch '${app_args[arch]}' for '$table_name'"
 	fi
+	app_args[pkg_name]=$(toml_get "$t" pkg-name) || app_args[pkg_name]=""
 
 	# A module needs the original APK when the target package is absent or on a
 	# different version.  Keep it in the module by default; `disable` is only
@@ -160,10 +164,10 @@ for table_name in $(toml_get_table_names); do
 	fi
 done
 wait
-rm -rf temp/tmp.*
+_clean_tmp
 if [ -z "$(ls -A1 "${BUILD_DIR}")" ]; then abort "All builds failed."; fi
 
-log "\nInstall [Microg](https://github.com/ReVanced/GmsCore/releases) for non-root YouTube and YT Music APKs"
+log "\nInstall [Microg](https://github.com/MorpheApp/MicroG-RE/) for non-root YouTube and YT Music APKs"
 log "Use [zygisk-detach](https://github.com/j-hc/zygisk-detach) to detach YouTube and YT Music modules from Play Store"
 log "\n[revanced-magisk-module](https://github.com/j-hc/revanced-magisk-module)\n"
 log "$(cat "$TEMP_DIR"/*/changelog.md)"

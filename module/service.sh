@@ -1,4 +1,5 @@
 #!/system/bin/sh
+
 MODDIR="$(dirname "$(readlink -f "$0")")"
 export MODDIR
 . "$MODDIR/utils.sh"
@@ -18,7 +19,6 @@ run() {
 		return
 	fi
 	sleep 4
-
 	mount_rv "$BASEPATH"
 }
 
