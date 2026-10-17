@@ -11,7 +11,8 @@ on:
 
 jobs:
   run:
-    permissions: write-all
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-java@v5
@@ -24,6 +25,18 @@ jobs:
         with:
           fetch-depth: 0
           submodules: true
+
+      - name: Validate build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f utils.sh
+          test -f module/utils.sh
+          while IFS= read -r -d '' script; do bash -n "$script"; done < <(find . -type f -name '*.sh' -not -path './temp/*' -not -path './build/*' -print0)
+          if LC_ALL=C grep -RIl $'\r' --include='*.sh' .; then
+            echo 'ERROR: Shell scripts must use LF line endings.' >&2
+            exit 1
+          fi
 
       - name: Update config
         if: ${{ inputs.from_ci }}
@@ -43,36 +56,6 @@ jobs:
           TAG=$(gh release list -L 1 | awk -F '\t' '{print $3}')
           if [ -z "$TAG" ]; then TAG=0; fi
           echo "NEXT_VER_CODE=$((TAG + 1))" >> $GITHUB_OUTPUT
-
-      - name: Fix line endings
-        run: |
-          sudo apt-get install -y dos2unix
-          find . -name "*.sh" -exec dos2unix {} +
-
-      - name: Patch utils.sh
-        run: |
-          UTILS=$(find . -name "utils.sh" | head -1)
-          echo "Patching $UTILS"
-          # Remove uptodown from sources entirely:
-          # - It serves wrong-signature APK variants (carrier/OEM builds)
-          # - Its 20-page version lookup loop causes 40+ min hangs from GitHub Actions
-          # Use the curated archive first. APKMirror often returns HTTP 403 to
-          # GitHub-hosted runners; it remains a fallback when the archive has
-          # no compatible APK.
-          sed -i 's/DL_SRCS=("direct" "archive" "apkmirror" "uptodown")/DL_SRCS=("direct" "archive" "apkmirror")/' "$UTILS"
-          sed -i 's/DL_SRCS=("direct" "apkmirror" "uptodown" "archive")/DL_SRCS=("direct" "archive" "apkmirror")/' "$UTILS"
-          # Add max-time and speed-limit as safety net for stalled archive.org downloads
-          sed -i 's/--connect-timeout 10 --retry 1 --fail/--connect-timeout 10 --max-time 600 --speed-limit 50000 --speed-time 60 --retry 2 --retry-delay 5 --retry-max-time 1200 --fail/' "$UTILS"
-          # Fix java() wrapper: `env -i` wipes the ENTIRE environment, including PATH,
-          # so every `java` call was silently falling back to whatever `java` the runner
-          # resolves via its default system path instead of the Zulu 21 that setup-java
-          # just installed. Harmless while every jar targeted <=Java 17 bytecode, but it
-          # breaks (UnsupportedClassVersionError) now that a cli-source jar needs 21.
-          sed -i 's/env -i java --enable-native-access=ALL-UNNAMED/env -i PATH="$PATH" JAVA_HOME="${JAVA_HOME-}" java --enable-native-access=ALL-UNNAMED/' "$UTILS"
-          # Verify changes applied
-          echo "=== DL_SRCS ===" && grep "DL_SRCS=" "$UTILS"
-          echo "=== curl ===" && grep "connect-timeout" "$UTILS"
-          echo "=== java() ===" && grep "^java()" "$UTILS"
 
       - name: Patch sig.txt
         run: |
@@ -97,6 +80,25 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: $GITHUB_REPOSITORY
           NEXT_VER_CODE: ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}
+
+      - name: Validate generated modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          modules=(build/*module*.zip)
+          ((${#modules[@]})) || { echo 'ERROR: No module ZIP was produced.' >&2; exit 1; }
+          for module in "${modules[@]}"; do
+            unzip -tq "$module"
+            entries=$(unzip -Z1 "$module")
+            for required in base.apk customize.sh service.sh action.sh utils.sh; do
+              grep -Fxq "$required" <<<"$entries" || { echo "ERROR: $module is missing $required" >&2; exit 1; }
+            done
+            stock_mode=$(unzip -p "$module" config | sed -n 's/^INCLUDE_STOCK=//p')
+            if [ "$stock_mode" != "disable" ]; then
+              grep -Fxq stock/base.apk <<<"$entries" || { echo "ERROR: $module is missing stock/base.apk" >&2; exit 1; }
+            fi
+          done
 
       - name: Get output
         id: get_output

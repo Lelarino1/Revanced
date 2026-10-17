@@ -5,7 +5,10 @@ CWD=$(pwd)
 TEMP_DIR="temp"
 BIN_DIR="bin"
 BUILD_DIR="build"
-DL_SRCS=("direct" "archive" "apkmirror" "uptodown")
+# Keep the actively supported download backends explicit.  Uptodown remains
+# implemented below for backwards compatibility, but is intentionally not used:
+# its version lookup is slow and it may serve OEM/carrier-signed variants.
+DL_SRCS=("direct" "archive" "apkmirror")
 
 if [ "${GITHUB_TOKEN-}" ]; then GH_HEADER="Authorization: token ${GITHUB_TOKEN}"; else GH_HEADER=; fi
 NEXT_VER_CODE=${NEXT_VER_CODE:-$(date +'%Y%m%d')}
@@ -131,9 +134,16 @@ get_prebuilts() {
 			asset=$(jq -r ".[0]" <<<"$matches")
 			url=$(jq -r .url <<<"$asset")
 			name=$(jq -r .name <<<"$asset")
+			# Release assets are occasionally renamed.  Cache patch bundles by
+			# release tag so a renamed asset does not make config-update rebuild
+			# unnecessarily or leave multiple names for the same release.
+			if [ "$tag" = "Patches" ]; then
+				local name_ext="${name##*.}"
+				name="patches-${tag_name#v}.${name_ext}"
+			fi
 			file="${dir}/${name}"
 			gh_dl "$file" "$url" >&2 || return 1
-			echo "$tag: $(cut -d/ -f1 <<<"$src")/${name}  " >>"${cl_dir}/changelog.md"
+			echo "$tag: ${src}/${name}  " >>"${cl_dir}/changelog.md"
 		else
 			grab_cl=false
 			name=$(basename "$file")
@@ -205,11 +215,14 @@ config_update() {
 			else
 				last_patches=$(gh_req "$rv_rel/tags/${PATCHES_VER}" -) || continue
 			fi
+			tag_name=$(jq -e -r '.tag_name' <<<"$last_patches") || abort "config_update error: No tag name"
 			if ! last_patches=$(jq -e -r '.assets[] | select(.name | (endswith("asc") or endswith("json")) | not) | .name' <<<"$last_patches"); then
 				abort "config_update error: '$last_patches'"
 			fi
 			if [ "$last_patches" ]; then
-				if ! OP=$(grep "^Patches: ${PATCHES_SRC%%/*}/" build.md | grep -m1 "$last_patches"); then
+				local name_ext="${last_patches##*.}"
+				last_patches="patches-${tag_name#v}.${name_ext}"
+				if ! OP=$(grep -m1 "^Patches: ${PATCHES_SRC}/${last_patches}" build.md); then
 					sources["$PATCHES_SRC/$PATCHES_VER"]=1
 					prcfg=true
 					upped+=("$table_name")
@@ -241,7 +254,9 @@ _req() {
 			return
 		fi
 	fi
-	if ! curl -L -c "$TEMP_DIR/cookie.txt" -b "$TEMP_DIR/cookie.txt" --connect-timeout 10 --retry 1 --fail -s -S "$@" "$ip" -o "$dlp"; then
+	if ! curl -L -c "$TEMP_DIR/cookie.txt" -b "$TEMP_DIR/cookie.txt" \
+		--connect-timeout 10 --max-time 600 --speed-limit 50000 --speed-time 60 \
+		--retry 2 --retry-delay 5 --retry-max-time 1200 --fail -s -S "$@" "$ip" -o "$dlp"; then
 		epr "Request failed: $ip"
 		if [ "$dlp" != - ]; then rm -f "$dlp"; fi
 		return 1
@@ -540,7 +555,10 @@ dl_archive() {
 		return 0
 	fi
 
-	path=$(grep -m1 "${version_f#v}-${arch// /}" <<<"$__ARCHIVE_RESP__") || return 1
+	if ! path=$(grep -m1 "${version_f#v}-${arch// /}" <<<"$__ARCHIVE_RESP__"); then
+		# Some archive entries ship only a universal APK for a release.
+		path=$(grep -m1 "${version_f#v}-all" <<<"$__ARCHIVE_RESP__") || return 1
+	fi
 	if [ "${path##*.}" = "apkm" ]; then
 		req "${url}/${path}" "${output}.apkm" || return 1
 		merge_splits "${output}.apkm" "$output"
@@ -554,7 +572,7 @@ get_archive_resp() {
 	if [ -z "$r" ]; then return 1; else __ARCHIVE_RESP__=$(sed -n 's;^<a href="\(.*\)"[^"]*;\1;p' <<<"$r"); fi
 	__ARCHIVE_PKG_NAME__=$(awk -F/ '{print $NF}' <<<"$1")
 }
-get_archive_vers() { sed 's/^[^-]*-//;s/-\(all\|arm64-v8a\|arm-v7a\)\.apk//g' <<<"$__ARCHIVE_RESP__"; }
+get_archive_vers() { sed 's/^[^-]*-//;s/-\(all\|arm64-v8a\|arm-v7a\)\.\(apk\|apkm\)//g' <<<"$__ARCHIVE_RESP__"; }
 get_archive_pkg_name() { echo "$__ARCHIVE_PKG_NAME__"; }
 
 # -------------------- direct --------------------
@@ -793,7 +811,7 @@ build_rv() {
 		cp -a $MODULE_TEMPLATE_DIR/. "$base_template"
 		local upj="${table,,}-update.json"
 
-		module_config "$base_template" "$pkg_name" "$version" "$arch"
+		module_config "$base_template" "$pkg_name" "$version" "$arch" "${args[include_stock]}"
 
 		local patches_ver="${patches_jar##*-}"
 		module_prop \
@@ -850,7 +868,8 @@ module_config() {
 	fi
 	echo "PKG_NAME=$2
 PKG_VER=$3
-MODULE_ARCH=$ma" >"$1/config"
+MODULE_ARCH=$ma
+INCLUDE_STOCK=${5:-merged}" >"$1/config"
 }
 module_prop() {
 	echo "id=${1}

@@ -1,0 +1,4 @@
+# Android shell scripts must retain Unix line endings in every checkout.
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

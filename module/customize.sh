@@ -26,28 +26,30 @@ STOCK_APK="$STOCK_DIR/base.apk"
 set_perm_recursive "$MODPATH/bin" 0 0 0755 0777
 umount_all
 
-if OP=$(dumpsys package "$PKG_NAME") && [ "$OP" ]; then
-	if echo "$OP" | grep -m1 pkgFlags | grep -Fq UPDATED_SYSTEM_APP; then
+IS_SYSTEM_APP=false
+UPDATED_SYSTEM_APP=false
+if ! OP=$(dumpsys package "$PKG_NAME") || [ -z "$OP" ]; then
+	# A disabled preinstalled app has no active package entry. Restore it only
+	# when the package manager confirms that it is a system package.
+	if pmex install-existing "$PKG_NAME" >/dev/null 2>&1; then
 		pmex uninstall-system-updates "$PKG_NAME" >/dev/null 2>&1
+		IS_SYSTEM_APP=true
 	fi
-elif pmex install-existing "$PKG_NAME" >/dev/null 2>&1; then
-	pmex uninstall-system-updates "$PKG_NAME" >/dev/null 2>&1
+else
+	PKG_FLAGS=$(echo "$OP" | grep -m1 pkgFlags)
+	if echo "$PKG_FLAGS" | grep -Fq ' SYSTEM '; then
+		IS_SYSTEM_APP=true
+		if echo "$PKG_FLAGS" | grep -Fq ' UPDATED_SYSTEM_APP '; then
+			UPDATED_SYSTEM_APP=true
+			ui_print "* $PKG_NAME is an updated system app"
+		else
+			ui_print "* $PKG_NAME is a system app"
+		fi
+	fi
 fi
 
 INS=true
 if BASEPATH=$(get_basepath); then
-	if [ "${BASEPATH:1:4}" != data ]; then
-		ui_print "* Detected $PKG_NAME as a system app"
-		SCNM="/data/adb/post-fs-data.d/$PKG_NAME-uninstall.sh"
-		mkdir -p /data/adb/post-fs-data.d
-		echo "mount -t tmpfs none $BASEPATH" >"$SCNM"
-		chmod +x "$SCNM"
-		ui_print "* Created the uninstall script."
-		ui_print ""
-		ui_print "* Reboot and reflash the module!"
-		abort
-	fi
-
 	VERSION=$(get_app_version)
 	if [ "$VERSION" ] && [ "$VERSION" = "$PKG_VER" ] && { [ ! -f "$STOCK_APK" ] || "${MODPATH:?}/bin/$ARCH/cmpr" "$BASEPATH/base.apk" "$STOCK_APK"; }; then
 		ui_print "* $PKG_NAME is up-to-date ($VERSION)"
@@ -94,19 +96,47 @@ install() {
 		if ! op=$(pmex install-commit "$SES"); then
 			ui_print "$op"
 			if echo "$op" | grep -q -e INSTALL_FAILED_VERSION_DOWNGRADE -e INSTALL_FAILED_UPDATE_INCOMPATIBLE -e INSTALL_FAILED_DUPLICATE; then
-				ex_unins_arg=""
-				if echo "$op" | grep -q INSTALL_FAILED_DUPLICATE; then
-					ui_print "* Uninstalling without data loss..."
-					ex_unins_arg="-k"
-				else
-					ui_print "* Uninstalling..."
-				fi
-				if ! op=$(pmex uninstall --user 0 $ex_unins_arg "$PKG_NAME"); then
-					ui_print "$op"
-					if [ $IT = 2 ]; then
-						install_err="ERROR: pm uninstall failed."
+				if [ "$IS_SYSTEM_APP" = true ] && [ "$UPDATED_SYSTEM_APP" = false ]; then
+					# A factory system APK cannot be replaced with a differently
+					# signed update. Hide it after boot, then let the next flash
+					# install the bundled stock APK as a user update.
+					if ! BASEPATH=$(get_basepath); then
+						install_err="ERROR: basepath failed."
 						break
 					fi
+					ui_print "* Debloating $BASEPATH"
+					mkdir -p /data/adb/rvhc/empty /data/adb/post-fs-data.d
+					chcon u:object_r:system_file:s0 /data/adb/rvhc/empty
+					SCNM="/data/adb/post-fs-data.d/$PKG_NAME-uninstall.sh"
+					echo "mount -o bind /data/adb/rvhc/empty ${BASEPATH}" >"$SCNM"
+					chmod +x "$SCNM"
+					ui_print "* Created the uninstall script."
+					ui_print ""
+					ui_print "* Reboot and reflash the module!"
+					install_err=" "
+					break
+				elif [ "$UPDATED_SYSTEM_APP" = true ]; then
+					ui_print "* Removing the updated system app..."
+					if ! op=$(pmex uninstall-system-updates "$PKG_NAME" 2>&1); then
+						ui_print "$op"
+					else
+						UPDATED_SYSTEM_APP=false
+					fi
+				else
+					ex_unins_arg=""
+					if echo "$op" | grep -q INSTALL_FAILED_DUPLICATE; then
+						ui_print "* Uninstalling user app without data loss..."
+						ex_unins_arg="-k"
+					else
+						ui_print "* Uninstalling user app..."
+					fi
+					if ! op=$(pmex uninstall --user 0 $ex_unins_arg "$PKG_NAME"); then
+						ui_print "$op"
+					fi
+				fi
+				if [ $IT = 2 ]; then
+					install_err="ERROR: uninstall failed."
+					break
 				fi
 				continue
 			fi
